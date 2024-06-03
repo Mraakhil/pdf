@@ -1,0 +1,38 @@
+Sample Policies
+
+Replace with your arn
+
+Public Access
+==============
+
+{
+  "Version":"2012-10-17",
+  "Statement":[
+    {
+      "Sid":"AddPerm",
+      "Effect":"Allow",
+      "Principal": "*",
+      "Action":["s3:GetObject"],
+      "Resource":["arn:aws:s3:::test9900012029/*"]
+    }
+  ]
+}
+
+Access To Specific IP
+=====================
+{
+  "Version": "2012-10-17",
+  "Id": "S3PolicyId1",
+  "Statement": [
+    {
+      "Sid": "IPAllow",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": "arn:aws:s3:::test9900012029/*",
+      "Condition": {
+         "IpAddress": {"aws:SourceIp": "103.5.132.67"}
+      } 
+    } 
+  ]
+}
