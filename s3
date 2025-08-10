@@ -100,3 +100,54 @@ Prefixes also improve performance for some operations (like list filtering).
     }
   ]
 }
+
+
+
+
+# How Lifecycle Rules Work
+A rule can apply to all objects in a bucket or only those with a prefix (like logs/) or tags (like project=archive).
+
+Lifecycle actions include:
+
+Transition actions – Move objects between storage classes:
+
+Example: After 30 days → move from S3 Standard to S3 Standard-IA.
+
+Example: After 365 days → move to S3 Glacier Deep Archive.
+
+Expiration actions – Permanently delete objects:
+
+Example: Delete objects after 730 days.
+
+Example: Delete incomplete multipart uploads after 7 days.
+
+
+#
+
+{
+  "Rules": [
+    {
+      "ID": "Move-Logs-To-Glacier-And-Delete",
+      "Filter": {
+        "Prefix": "logs/"
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        }
+      ],
+      "Expiration": {
+        "Days": 365
+      },
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 30
+      }
+    }
+  ]
+}
