@@ -35,3 +35,35 @@ Here, invoices/2025/ acts like a directory.
 Useful for grouping related data for easier browsing in the AWS Console.
 
 Prefixes also improve performance for some operations (like list filtering).
+
+
+
+
+
+
+
+
+
+
+
+# AWS S3 POLICY 
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Statement1",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::24131453fjhgcfj4ccf"
+    },
+    {
+      "Sid": "Statement2",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::24131453fjhgcfj4ccf/*"
+    }
+  ]
+}
+
