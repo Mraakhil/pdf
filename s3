@@ -151,3 +151,84 @@ Example: Delete incomplete multipart uploads after 7 days.
     }
   ]
 }
+
+
+
+##
+Here’s a compact but complete list of key AWS S3 points you should remember — useful for interviews, exams, or daily cloud work:
+
+1. Basics
+S3 = Simple Storage Service → Object storage, not block or file storage.
+
+Global service → Bucket names are unique globally.
+
+Objects consist of data + metadata + key (name).
+
+Max object size = 5 TB (single upload max 5 GB; bigger needs Multipart Upload).
+
+2. Storage Classes
+S3 Standard – High availability, low latency.
+
+S3 Intelligent-Tiering – Moves data automatically between tiers.
+
+S3 Standard-IA – Infrequent Access, lower cost, retrieval fee.
+
+S3 One Zone-IA – Cheaper, stored in one AZ.
+
+S3 Glacier / Deep Archive – Archival, long retrieval times.
+
+3. Bucket Policies & Access
+Access is private by default.
+
+Bucket policy – JSON-based, applies to all objects in the bucket.
+
+IAM policy – Applies to users/roles.
+
+ACLs – Legacy method for object-level access.
+
+Block Public Access – Must be disabled to allow public objects.
+
+4. Versioning
+Keeps multiple versions of an object.
+
+Once enabled, can’t be disabled, only suspended.
+
+5. Encryption
+SSE-S3 – Managed by AWS (AES-256).
+
+SSE-KMS – AWS KMS keys for more control.
+
+SSE-C – Customer-provided keys.
+
+Client-side encryption – Encrypt before upload.
+
+6. Data Management
+Lifecycle Rules – Move or delete data automatically (e.g., Standard → Glacier).
+
+Replication – Cross-Region (CRR) or Same-Region (SRR). Requires versioning.
+
+Object Lock – WORM (Write Once Read Many) for compliance.
+
+7. Performance & Limits
+Unlimited storage.
+
+Object upload/download performance can be increased with S3 Transfer Acceleration.
+
+Prefix in object key affects performance.
+
+8. Logging & Monitoring
+Access Logs – Track requests to bucket.
+
+CloudTrail – Track API calls.
+
+CloudWatch Metrics – Monitor storage, requests, errors.
+
+9. Event Notifications
+Can trigger Lambda, SNS, or SQS on object events (upload, delete, etc.).
+
+10. Security
+Supports VPC Endpoints for private access without internet.
+
+IAM best practice: least privilege.
+
+MFA Delete for extra protection.
