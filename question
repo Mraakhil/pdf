@@ -1,0 +1,449 @@
+
+1) How do you give a developer temporary access to S3 for 24 hours?
+Idea: Create an IAM role that grants the needed S3 permissions and let the developer assume it for a limited duration (24 hours) using STS.
+Why: Roles + STS give temporary credentials, no long-lived keys.
+
+Example (high-level):
+
+In Account A (where S3 lives), create role DevTempS3Role with trust allowing the developer’s principal (or account) to assume it.
+
+Attach a policy to the role that allows S3 actions on the required bucket.
+
+Developer runs aws sts assume-role --role-arn ... --duration-seconds 86400 to get temporary creds (86400 sec = 24 hours).
+
+Role trust policy (JSON):
+
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "AWS": "arn:aws:iam::111122223333:user/dev.jane" },
+    "Action": "sts:AssumeRole"
+  }]
+}
+Role permissions policy (JSON):
+
+{
+  "Version":"2012-10-17",
+  "Statement":[{
+    "Effect":"Allow",
+    "Action":["s3:GetObject","s3:ListBucket","s3:PutObject"],
+    "Resource":["arn:aws:s3:::example-bucket","arn:aws:s3:::example-bucket/*"]
+  }]
+}
+CLI to assume role:
+
+aws sts assume-role \
+  --role-arn arn:aws:iam::ACCOUNT_A:role/DevTempS3Role \
+  --role-session-name dev-temp \
+  --duration-seconds 86400
+Best practice: Use MFA or require approval for sensitive data and use least privilege (only needed operations + prefixes).
+
+2) How do you allow EC2 to securely access S3 without using access keys?
+Answer: Attach an IAM role (instance profile) to the EC2 instance. Code on EC2 uses the instance metadata service to obtain temporary credentials automatically.
+
+Why: Avoids embedding access keys on instances; credentials are rotated automatically by AWS.
+
+Example:
+
+Create IAM role EC2S3ReadRole with policy:
+
+{
+  "Version":"2012-10-17",
+  "Statement":[{
+    "Effect":"Allow",
+    "Action":["s3:GetObject","s3:ListBucket"],
+    "Resource":["arn:aws:s3:::my-data","arn:aws:s3:::my-data/*"]
+  }]
+}
+Attach that role to the EC2 instance (via Launch Template / Console / CLI).
+
+On the instance, AWS SDKs automatically pick credentials (no manual config).
+
+CLI to attach (example for existing instance):
+
+aws ec2 associate-iam-instance-profile --instance-id i-0abc123 --iam-instance-profile Name=EC2S3ReadRole
+Best practice: Use least privilege and restrict actions to S3 prefixes.
+
+3) A user can log in but still cannot access an S3 bucket. What would you check?
+Checklist & steps (ordered):
+
+Explicit Deny — check bucket policy for explicit Deny (explicit deny overrides allow).
+
+Resource-based policy — check S3 bucket policy and object ACLs.
+
+IAM policies — check user’s attached policies, group policies, and managed policies.
+
+Permission boundaries — a permission boundary on the principal could limit effective permissions.
+
+Service Control Policies (SCPs) (if AWS Organizations used) — SCP can block actions account-wide.
+
+Session policies — if using AssumeRole, session policies could restrict.
+
+Bucket encryption / KMS — if bucket uses SSE-KMS, check KMS key policy allows the user to kms:Decrypt.
+
+VPC endpoint policy — if access is via an S3 VPC Endpoint, the endpoint policy may restrict access.
+
+AWS CloudTrail / Access Denied logs — check CloudTrail for error events to see the denied action and principal.
+
+Tools: IAM Policy Simulator, S3 Access Analyzer, CloudTrail logs.
+
+4) How do you enforce MFA for console and CLI access?
+Console MFA enforcement: Attach an IAM policy that denies all console actions unless aws:MultiFactorAuthPresent is true.
+
+Policy example (console & API protected):
+
+{
+  "Version":"2012-10-17",
+  "Statement":[
+    {
+      "Effect":"Deny",
+      "Action":"*",
+      "Resource":"*",
+      "Condition":{"Bool":{"aws:MultiFactorAuthPresent":"false"}}
+    }
+  ]
+}
+Apply only to the users/groups or as a user-level policy (careful: make sure at least one administrator can bypass temporarily).
+
+CLI/API with MFA: Clients must get temporary credentials using sts:GetSessionToken (or sts:AssumeRole) providing MFA; then these temp creds are used for CLI/API.
+
+CLI to get temp creds with MFA:
+
+aws sts get-session-token \
+  --serial-number arn:aws:iam::123456789012:mfa/dev.jane \
+  --token-code 123456 \
+  --duration-seconds 3600
+Then export the returned AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN.
+
+Best practice: Require MFA for privileged users/roles; use hardware or virtual MFA and rotate backup admin.
+
+5) How do you share access with another AWS account securely?
+Answer: Use cross-account IAM roles (recommended) or resource-based policies.
+
+Approach 1 — Cross-account role (most common):
+
+In Account B (resource/account owner) create role CrossAccountAccessRole whose trust policy allows Account A (the calling account) to assume the role.
+
+Attach appropriate permissions to the role (e.g., S3 read).
+
+From Account A, an IAM user or role calls sts:AssumeRole to get temporary credentials.
+
+Trust policy example (role in Account B):
+
+{
+ "Version":"2012-10-17",
+ "Statement":[{
+   "Effect":"Allow",
+   "Principal":{"AWS":"arn:aws:iam::111122223333:role/DevTeamRole"},
+   "Action":"sts:AssumeRole"
+ }]
+}
+Approach 2 — Resource-based policy: For S3 you can add a bucket policy that allows principals from another account to access it (useful for simple read/write sharing).
+
+Best practice: Use roles + least privilege and audit via CloudTrail.
+
+6) What’s the best way to give read-only access to CloudWatch logs?
+Answer: Use AWS managed policy CloudWatchLogsReadOnlyAccess or create a custom policy limited to logs:Describe*, logs:GetLogEvents, logs:FilterLogEvents.
+
+Custom example:
+
+{
+  "Version":"2012-10-17",
+  "Statement":[{
+    "Effect":"Allow",
+    "Action":[
+      "logs:DescribeLogGroups",
+      "logs:DescribeLogStreams",
+      "logs:GetLogEvents",
+      "logs:FilterLogEvents",
+      "logs:DescribeSubscriptionFilters"
+    ],
+    "Resource":"*"
+  }]
+}
+Best practice: Narrow Resource to specific log groups where possible.
+
+7) How do you enforce that all IAM users rotate access keys every 90 days?
+Options:
+
+AWS Config managed rule iam-credentials-check or a custom AWS Config rule that flags keys older than 90 days.
+
+Automated Lambda — run periodic Lambda that reads the IAM credential report, finds keys older than 90 days and disables or emails owners.
+
+IAM policy enforcement — you cannot directly force a rotation with a single IAM policy; policies can deny actions unless using temporary/session credentials (encourage role usage).
+
+Organizational policy + automation — enforce using Guardrails and automated remediations.
+
+Example automation: AWS Config with iam-access-keys-rotated or a scheduled Lambda that:
+
+Uses aws iam get-credential-report
+
+Parses access_key_1_last_rotated, access_key_2_last_rotated
+
+Notifies or disables keys past 90 days.
+
+Best practice: Prefer temporary credentials (roles, SSO) to reduce reliance on long-lived access keys.
+
+8) How do you troubleshoot when an IAM policy denies access unexpectedly?
+Steps:
+
+Check CloudTrail to see the denied operation and the exact error.
+
+Use IAM Policy Simulator — simulate the user/role + action + resource to find which policy produced Deny.
+
+Look for explicit Deny in any policy (identity policy, resource policy, SCP).
+
+Check permission boundary — boundaries restrict maximum allowed actions.
+
+Check session policies (if assumed role) or service control policies (Organizations).
+
+Check resource-based policies (S3 bucket policy / KMS key policy / Lambda policy).
+
+Check conditions like aws:SourceIp, aws:MultiFactorAuthPresent, kms:ViaService, etc.
+
+Use AWS Access Analyzer / Trusted Advisor to find misconfigurations.
+
+Tip: Explicit Deny always wins. Start by searching for Effect: "Deny" across policies.
+
+9) What’s the difference between inline and managed IAM policies, and when would you use each?
+Managed policies (AWS or Customer managed):
+
+Re-usable. Create once, attach to many users/roles/groups.
+
+Easier to update and version. AWS provides AWS-managed policies.
+
+Recommended for most cases.
+
+Inline policies:
+
+Embedded directly in a single user, role, or group.
+
+Tightly coupled and suited for one-off, highly specific permissions that should be deleted if the identity is deleted.
+
+Harder to reuse and manage at scale.
+
+When to use:
+
+Managed: standard permissions, shareable policies, updates required across many identities.
+
+Inline: rare cases where permissions must be uniquely tied to a single principal and should be removed with it (e.g., emergency/ephemeral access).
+
+10) How do you ensure that developers can only launch specific EC2 instance types?
+Answer: Use an IAM policy that denies ec2:RunInstances unless ec2:InstanceType matches allowed types.
+
+Policy example (allow only t3.micro & t3.small):
+
+{
+  "Version":"2012-10-17",
+  "Statement":[
+    {
+      "Effect":"Deny",
+      "Action":"ec2:RunInstances",
+      "Resource":"*",
+      "Condition":{
+        "StringNotEquals":{"ec2:InstanceType":["t3.micro","t3.small"]}
+      }
+    }
+  ]
+}
+Notes: You must also ensure other related actions (CreateLaunchTemplate, etc.) are covered or restricted as needed. Test with policy simulator.
+
+11) How do you restrict IAM users so they can log in only from your corporate IP range?
+Answer: Use an IAM policy with an aws:SourceIp condition to Deny API/console access when the source IP is outside your allowed CIDR.
+
+Example:
+
+{
+  "Version":"2012-10-17",
+  "Statement":[{
+    "Effect":"Deny",
+    "Action":"*",
+    "Resource":"*",
+    "Condition":{
+      "NotIpAddress":{"aws:SourceIp":"203.0.113.0/24"}
+    }
+  }]
+}
+Important: Browser-based Console sessions go through the public internet; aws:SourceIp works for console sign-in and API calls. For more robust access control, consider forcing access via a VPN or using AWS Client VPN / PrivateLink.
+
+12) How do you grant cross-account access to Lambda functions?
+Options:
+
+Resource policy on the Lambda function — add aws lambda add-permission to allow an AWS principal from another account to InvokeFunction.
+
+Cross-account role — have the other account assume a role that has lambda:InvokeFunction on the target function.
+
+Example: Add permission to Lambda (allow account 111122223333 to invoke):
+
+aws lambda add-permission \
+  --function-name MyFunction \
+  --statement-id AllowAccount1111 \
+  --action lambda:InvokeFunction \
+  --principal 111122223333
+Best practice: Use resource-based policies for simple invoke permissions; use roles for more complex cross-account workflows.
+
+13) What are IAM permission boundaries, and when do you use them?
+Permission boundaries = a maximum permission limit applied to an IAM principal (user or role). Even if a user has an identity policy allowing an action, they cannot exceed the boundary.
+
+Use cases:
+
+Delegate permission management to teams but prevent privilege escalation (e.g., give devs ability to create roles but not admin).
+
+Implement guardrails in multi-tenant environments.
+
+How it works: Effective permissions = identity policy AND permission boundary (intersection).
+
+Example: Set a boundary that only allows S3 and DynamoDB actions; even if the user later gets EC2 admin policy attached, EC2 actions are blocked.
+
+14) How do you prevent users from deleting important S3 objects?
+Options & examples:
+
+Bucket policy deny deletes: add a bucket policy that denies s3:DeleteObject to everyone except a small admin role.
+
+{
+ "Version":"2012-10-17",
+ "Statement":[{
+   "Effect":"Deny",
+   "Principal":"*",
+   "Action":"s3:DeleteObject",
+   "Resource":"arn:aws:s3:::important-bucket/*",
+   "Condition":{"StringNotEquals":{"aws:PrincipalArn":"arn:aws:iam::123456789012:role/S3AdminRole"}}
+ }]
+}
+Enable versioning + MFA Delete: Turn on versioning and enable MFA Delete — deletes must present MFA to permanently remove object versions. (Note: MFA Delete requires the root user and must be managed carefully.)
+
+Use object lock (WORM) / retention policies: If you need immutable data for regulatory reasons, use S3 Object Lock (governance/compliance modes) to prevent deletion for a retention period.
+
+Least privilege: Only give delete permissions to a tiny set of admins.
+
+Best practice: Combine versioning + object lock or restricted bucket policy for critical data.
+
+15) A new intern needs limited console access. How do you configure it?
+Steps:
+
+Create an IAM user (or better: use AWS SSO and a permission set).
+
+Attach a restrictive policy that allows only the console actions needed — for example, view-only access for specific services, access to a training S3 bucket, or access to a sandbox account.
+
+Use groups (e.g., Interns) and attach the policy to the group for easier management.
+
+Set up MFA, short credential rotation, and an expiration process (disable after internship).
+
+Use permission boundaries if interns might create resources — to cap resource creation.
+
+Example policy giving read-only access to specific console resources:
+
+{
+ "Version":"2012-10-17",
+ "Statement":[{
+   "Effect":"Allow",
+   "Action":[
+     "s3:ListBucket","s3:GetObject",
+     "ec2:DescribeInstances","logs:DescribeLogGroups"
+   ],
+   "Resource":"*"
+ }]
+}
+Best practice: Put interns in isolated accounts (sandbox) using AWS Organizations and SSO to avoid accidental ops on production.
+
+16) What’s the best way to assign permissions to hundreds of users at once?
+Options (scale-friendly):
+
+Use IAM groups and attach policies to groups (classic approach).
+
+Use AWS Single Sign-On (IAM Identity Center) (recommended): manage central permission sets and map to identities (Okta/AD/IdP).
+
+Automate with IaC: CloudFormation / Terraform to create and attach policies/roles consistently.
+
+Use AWS Organizations + SCPs for account-level guardrails.
+
+Best practice: Use groups or SSO permission sets OR automate with Terraform — don’t attach policies individually to users.
+
+17) How do you monitor and detect unusual IAM activity?
+Tools & signals:
+
+AWS CloudTrail: log every API call — look for unusual CreateAccessKey, ConsoleLogin failures, AssumeRole from unusual regions.
+
+CloudWatch Logs & Alarms: create metric filters for denied actions or suspicious patterns; alert on anomalies.
+
+Amazon GuardDuty: identifies compromised credentials and unusual API calls.
+
+AWS Config: rule drift, e.g., new policies attached or deletion.
+
+IAM Access Analyzer: find publicly accessible resources or cross-account exposures.
+
+AWS Security Hub: aggregate findings.
+
+Automated detection: use ML or rules (failed logins, unusual source ip, excessive privilege escalations) and automated remediation (disable keys).
+
+Example alerts to create: alert on creation of new IAM users, console login from new countries, creation of new access keys, or attachment of admin policies to non-admin users.
+
+18) How do you allow federated users from an Active Directory/SSO provider to log in?
+Answer: Use SAML or OIDC federation with AWS:
+
+Options:
+
+AWS IAM Identity Center (AWS SSO) — integrates with IdPs (Azure AD, Okta, ADFS) for central SSO management.
+
+SAML federation (federate to IAM roles) — configure SAML provider in IAM and create roles with a trust policy that accepts SAML assertions from your IdP. Map AD groups to role ARNs.
+
+OIDC — for providers supporting OIDC.
+
+High-level flow: User logs into corporate IdP → IdP sends SAML assertion to AWS → AWS maps assertion to an IAM role → user receives temporary credentials and console/API access.
+
+Best practice: Use AWS SSO/Identity Center for simplified management and provisioning.
+
+19) How do you implement least privilege across multiple teams?
+Approach (process + tech):
+
+Role-based model: create narrow, job-role permission sets (role-per-application/team).
+
+Permission boundaries: prevent escalation when teams manage their own roles.
+
+Use AWS SSO permission sets and map to teams/groups.
+
+Review & revoke cycle: regular access reviews, using Access Advisor data.
+
+Use infrastructure-as-code to provision policies consistently and review PRs.
+
+Use Guardrails (SCPs) to prevent dangerous cross-account actions.
+
+Continuous monitoring with CloudTrail / IAM Access Analyzer.
+
+Best practice: Start minimal and expand on request with justifications & approvals.
+
+20) How do you revoke IAM access immediately if a user leaves the company?
+Immediate steps (practical):
+
+Disable user login: aws iam delete-login-profile --user-name alice (removes console login).
+
+Delete or deactivate access keys: aws iam list-access-keys then aws iam update-access-key --access-key-id <id> --status Inactive or aws iam delete-access-key.
+
+Remove from groups and detach policies: aws iam remove-user-from-group and aws iam detach-user-policy.
+
+Delete or disable MFA device and delete-login-profile.
+
+Revoke active sessions: For federated or SSO sessions, use AWS SSO console to revoke; for IAM user sessions, change password and/or delete session tokens. (Also rotate shared keys/roles if they were used.)
+
+Audit: check CloudTrail for suspicious activity from that user.
+
+If using IAM roles / SSO: disable corresponding SSO account / role assignment.
+
+Example CLI to deactivate keys:
+
+aws iam update-access-key --user-name alice --access-key-id AKIA... --status Inactive
+Best practice: Have an offboarding playbook that automates these steps (runbook or automation) so human error doesn’t leave accounts active.
+
+Short summary of the top recurring patterns / interview takeaways
+Prefer temporary credentials (roles, STS) over long-lived access keys.
+
+Use resource-based policies for cross-account and service-level permissions where applicable (Lambda, S3).
+
+Use automation (AWS Config, Lambda, Terraform) to enforce rotation and large-scale changes.
+
+Monitor aggressively (CloudTrail + GuardDuty + CloudWatch alerts).
+
+Least privilege + permission boundaries + SCPs = defence-in-depth for multi-team orgs.
+
+Practice offboarding automation to revoke access fast.
