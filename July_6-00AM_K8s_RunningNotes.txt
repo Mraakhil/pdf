@@ -178,7 +178,8 @@ spec:
 
 
 K8's Service   ---> In Kubernetes Service makes our pods accessable/discoverable with in the cluster or exposing them to internat.
-               		service will identify pods using it's labels And Selector. Whenever we create a service a ClusterIP (virtual IP) Address will be allocated for that serivce and DNS 					entry will be created for that IP. So internally we can access using service name(DNS).
+               		service will identify pods using it's labels And Selector. Whenever we create a service a ClusterIP (virtual IP) Address will be allocated for that serivce and DNS 					
+entry will be created for that IP. So internally we can access using service name(DNS).
 						
 	
 Service
